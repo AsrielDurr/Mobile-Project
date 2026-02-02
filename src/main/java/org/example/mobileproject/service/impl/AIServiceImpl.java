@@ -3,6 +3,7 @@ package org.example.mobileproject.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.mobileproject.config.AIConfig;
 import org.example.mobileproject.entity.*;
 import org.example.mobileproject.mapper.DocumentTokenMapper;
 import org.example.mobileproject.service.*;
@@ -28,9 +29,7 @@ public class AIServiceImpl implements AIService {
     private final EntityItemService entityItemService;
     private final DocumentTokenMapper tokenMapper;
     private final ObjectMapper objectMapper;
-
-    private final String API_KEY = "sk-9fec8ac0a66e48ecbb8d714bbfaea319";
-    private final String BASE_URL = "https://api.deepseek.com/v1/chat/completions";
+    private final AIConfig aiConfig;  // 注入配置类
 
     @Override
     @Transactional
@@ -93,40 +92,64 @@ public class AIServiceImpl implements AIService {
     }
 
     /**
-     * 调用 DeepSeek API
+     * 调用 AI API（实体提取专用）
      */
     private AIEntityExtractionResponse callDeepSeek(String content) {
+        log.info("========== 开始调用 AI 实体提取 API ==========");
+        log.info("使用模型: {}", aiConfig.getEntityExtractionModel());
+        log.info("API 地址: {}", aiConfig.getBaseUrl());
+
         RestTemplate restTemplate = new RestTemplate();
 
         // 严格构造消息体，解决 400 Bad Request 问题
         Map<String, String> userMessage = new HashMap<>();
         userMessage.put("role", "user");
         userMessage.put("content", "你是一个命名实体识别助手。请从文本中提取实体。要求：\n" +
-                "1. 严格返回 JSON 格式。\n" +
-                "2. 结构：{\"entities\": [{\"text\": \"...\", \"label\": \"...\", \"description\": \"...\"}]}\n" +
-                "3. 待处理文本：\n" + content);
+                "1. 只输出 JSON，不要解释、不要 Markdown、不要代码块标记（不要出现 ```json 或 ```）。\n" +
+                "2. 严格遵循结构：{\"entities\": [{\"text\": \"...\", \"label\": \"...\", \"description\": \"...\"}]}。\n" +
+                "3. text 必须是原文中的连续片段，不得改写或添加。\n" +
+                "4. 除 JSON 外不要输出任何多余字符。\n" +
+                "5. 待处理文本：\n" + content);
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", "deepseek-chat");
+        requestBody.put("model", aiConfig.getEntityExtractionModel());  // 使用配置的模型
         requestBody.put("messages", Collections.singletonList(userMessage));
-        requestBody.put("response_format", Collections.singletonMap("type", "json_object"));
+        // 注意：移除 response_format 参数，因为某些 API（如方州 Ark）可能不支持
+        // requestBody.put("response_format", Collections.singletonMap("type", "json_object"));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(API_KEY);
+        headers.setBearerAuth(aiConfig.getApiKey());  // 使用配置的 API Key
 
         try {
+            log.info("发送请求到 AI API...");
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(BASE_URL, entity, String.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(aiConfig.getBaseUrl(), entity, String.class);  // 使用配置的 URL
+
+            log.info("收到响应，状态码: {}", response.getStatusCode());
+            log.debug("完整响应体: {}", response.getBody());
 
             Map<String, Object> respMap = objectMapper.readValue(response.getBody(), Map.class);
             List<Map<String, Object>> choices = (List<Map<String, Object>>) respMap.get("choices");
+
+            if (choices == null || choices.isEmpty()) {
+                log.error("API 响应中没有 choices 字段或为空");
+                return null;
+            }
+
             String jsonContent = (String) ((Map<String, Object>) choices.get(0).get("message")).get("content");
 
-            log.debug("AI Response JSON: {}", jsonContent);
-            return objectMapper.readValue(jsonContent, AIEntityExtractionResponse.class);
+            log.info("AI 返回的 JSON 内容: {}", jsonContent);
+            AIEntityExtractionResponse result = objectMapper.readValue(jsonContent, AIEntityExtractionResponse.class);
+            log.info("成功解析实体提取结果，共 {} 个实体",
+                    result.getEntities() != null ? result.getEntities().size() : 0);
+
+            return result;
         } catch (Exception e) {
-            log.error("AI 调用接口失败: {}", e.getMessage());
+            log.error("========== AI 调用接口失败 ==========");
+            log.error("异常类型: {}", e.getClass().getName());
+            log.error("异常信息: {}", e.getMessage());
+            log.error("完整堆栈:", e);
             return null;
         }
     }
@@ -249,25 +272,34 @@ public class AIServiceImpl implements AIService {
         return sb.toString();
     }
 
-    // 调用deepseek分析csv数据
-    private String callDeepSeekGeneric(String prompt) {
+    /**
+     * 调用 AI API（通用方法，用于文档分析和报告生成）
+     * @param prompt 提示词
+     * @param modelType 模型类型：document_analysis 或 report_generation
+     */
+    private String callDeepSeekGeneric(String prompt, String modelType) {
         RestTemplate restTemplate = new RestTemplate();
         Map<String, String> message = new HashMap<>();
         message.put("role", "user");
         message.put("content", prompt);
 
+        // 根据任务类型选择对应的模型
+        String model = "document_analysis".equals(modelType)
+                ? aiConfig.getDocumentAnalysisModel()
+                : aiConfig.getReportGenerationModel();
+
         Map<String, Object> body = new HashMap<>();
-        body.put("model", "deepseek-chat");
+        body.put("model", model);  // 使用配置的模型
         body.put("messages", Collections.singletonList(message));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(API_KEY);
+        headers.setBearerAuth(aiConfig.getApiKey());  // 使用配置的 API Key
 
         try {
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
             // 使用 ResponseEntity<String> 接收原始字符串，再手动解析或让 RestTemplate 解析
-            ResponseEntity<Map> response = restTemplate.postForEntity(BASE_URL, entity, Map.class);
+            ResponseEntity<Map> response = restTemplate.postForEntity(aiConfig.getBaseUrl(), entity, Map.class);  // 使用配置的 URL
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
@@ -283,6 +315,14 @@ public class AIServiceImpl implements AIService {
         }
     }
 
+    /**
+     * 调用 AI API（文档分析专用）
+     * @deprecated 使用 callDeepSeekGeneric(prompt, "document_analysis") 替代
+     */
+    private String callDeepSeekGeneric(String prompt) {
+        return callDeepSeekGeneric(prompt, "document_analysis");
+    }
+
     @Override
     public String generateBusinessReport(String rawAnalysis) {
         String prompt = "你是一位资深的业务管理专家。请根据以下【原始数据分析结论】，撰写一份深度的【业务年度/月度评估与行动指南】。\n\n" +
@@ -294,6 +334,6 @@ public class AIServiceImpl implements AIService {
                 "4. **文风**：专业、严谨、具有前瞻性。\n\n" +
                 "请以正式报告的格式返回。";
 
-        return callDeepSeekGeneric(prompt); // 复用之前的通用调用方法
+        return callDeepSeekGeneric(prompt, "report_generation"); // 使用报告生成专用模型
     }
 }

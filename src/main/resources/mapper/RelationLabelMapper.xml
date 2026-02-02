@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.RelationLabelMapper">
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.RelationLabel" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO relation_labels (relation_name, description)
+        VALUES (#{relationName}, #{description});
+    </insert>
+
+    <select id="selectById" resultType="org.example.mobileproject.entity.RelationLabel">
+        SELECT id, relation_name AS relationName, description, created_at AS createdAt
+        FROM relation_labels
+        WHERE id = #{id};
+    </select>
+
+    <select id="selectAll" resultType="org.example.mobileproject.entity.RelationLabel">
+        SELECT id, relation_name AS relationName, description, created_at AS createdAt
+        FROM relation_labels;
+    </select>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.RelationLabel">
+        UPDATE relation_labels
+        SET relation_name = #{relationName}, description = #{description}
+        WHERE id = #{id};
+    </update>
+
+    <delete id="delete">
+        DELETE FROM relation_labels WHERE id = #{id};
+    </delete>
+
+</mapper>

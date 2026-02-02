@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.DocumentMapper">
+
+    <resultMap id="DocumentResult" type="org.example.mobileproject.entity.Document">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="DocumentResult" parameterType="long">
+        SELECT * FROM documents WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultMap="DocumentResult">
+        SELECT * FROM documents ORDER BY id
+    </select>
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.Document" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO documents (title, content, created_at)
+        VALUES (#{title}, #{content}, NOW())
+    </insert>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.Document">
+        UPDATE documents
+        SET title = #{title}, content = #{content}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM documents WHERE id = #{id}
+    </delete>
+
+</mapper>

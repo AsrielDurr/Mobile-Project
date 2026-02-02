@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.EntityItemMapper">
+
+    <resultMap id="EntityResult" type="org.example.mobileproject.entity.EntityItem">
+        <id property="id" column="id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="labelId" column="label_id"/>
+        <result property="text" column="text"/>
+        <result property="tokenStart" column="token_start"/>
+        <result property="tokenEnd" column="token_end"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectById" parameterType="long" resultMap="EntityResult">
+        SELECT * FROM entity_items WHERE id = #{id}
+    </select>
+
+    <select id="selectByDocumentId" parameterType="long" resultMap="EntityResult">
+        SELECT * FROM entity_items WHERE document_id = #{documentId} ORDER BY token_start
+    </select>
+
+    <select id="selectByDocumentIdAndTokenRange" resultMap="EntityResult">
+        SELECT *
+        FROM entity_items
+        WHERE document_id = #{documentId}
+          AND token_start = #{tokenStart}
+          AND token_end = #{tokenEnd}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.EntityItem" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO entity_items (document_id, label_id, text, token_start, token_end, created_at)
+        VALUES (#{documentId}, #{labelId}, #{text}, #{tokenStart}, #{tokenEnd}, NOW())
+    </insert>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.EntityItem">
+        UPDATE entity_items
+        SET label_id=#{labelId}, text=#{text}, token_start=#{tokenStart}, token_end=#{tokenEnd}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM entity_items WHERE id = #{id}
+    </delete>
+
+</mapper>

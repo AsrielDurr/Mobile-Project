@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.KgNodeMapper">
+
+    <resultMap id="KgNodeResult" type="org.example.mobileproject.entity.KgNode">
+        <id property="id" column="id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="entityId" column="entity_id"/>
+        <result property="labelId" column="label_id"/>
+        <result property="name" column="name"/>
+        <result property="properties" column="properties"
+                typeHandler="org.example.mobileproject.util.JsonMapTypeHandler" />
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="KgNodeResult">
+        SELECT * FROM kg_nodes WHERE id = #{id}
+    </select>
+
+    <select id="selectByDocumentId" resultMap="KgNodeResult">
+        SELECT * FROM kg_nodes WHERE document_id = #{documentId}
+    </select>
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.KgNode"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO kg_nodes (document_id, entity_id, name, label_id, properties, created_at)
+        VALUES (#{documentId}, #{entityId}, #{name}, #{labelId}, #{properties}, NOW())
+    </insert>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.KgNode">
+        UPDATE kg_nodes
+        SET
+            name = #{name},
+            label_id = #{labelId},
+            properties = #{properties}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM kg_nodes WHERE id = #{id}
+    </delete>
+
+</mapper>

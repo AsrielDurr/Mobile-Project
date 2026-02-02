@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.RelationMapper">
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.Relation" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO relations (document_id, relation_label_id, head_entity_id, tail_entity_id)
+        VALUES (#{documentId}, #{relationLabelId}, #{headEntityId}, #{tailEntityId});
+    </insert>
+
+    <select id="selectById" resultType="org.example.mobileproject.entity.Relation">
+        SELECT id, document_id AS documentId, relation_label_id AS relationLabelId,
+               head_entity_id AS headEntityId, tail_entity_id AS tailEntityId, created_at AS createdAt
+        FROM relations
+        WHERE id = #{id};
+    </select>
+
+    <select id="selectByDocumentId" resultType="org.example.mobileproject.entity.Relation">
+        SELECT id, document_id AS documentId, relation_label_id AS relationLabelId,
+               head_entity_id AS headEntityId, tail_entity_id AS tailEntityId, created_at AS createdAt
+        FROM relations
+        WHERE document_id = #{documentId};
+    </select>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.Relation">
+        UPDATE relations
+        SET relation_label_id = #{relationLabelId}, head_entity_id = #{headEntityId}, tail_entity_id = #{tailEntityId}
+        WHERE id = #{id};
+    </update>
+
+    <delete id="delete">
+        DELETE FROM relations WHERE id = #{id};
+    </delete>
+
+    <select id="selectByDocumentAndLabel" resultType="org.example.mobileproject.entity.Relation">
+        SELECT * FROM relations
+        WHERE document_id = #{documentId}
+          AND relation_label_id = #{relationLabelId}
+          AND head_entity_id = #{headEntityId}
+          AND tail_entity_id = #{tailEntityId}
+    </select>
+
+
+</mapper>

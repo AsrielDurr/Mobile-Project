@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.DocumentTokenMapper">
+
+    <resultMap id="TokenResult" type="org.example.mobileproject.entity.DocumentToken">
+        <id property="id" column="id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="tokenIndex" column="token_index"/>
+        <result property="tokenText" column="token_text"/>
+        <result property="isEntity" column="is_entity"/>
+        <result property="entityId" column="entity_id"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectByDocumentId" resultMap="TokenResult" parameterType="long">
+        SELECT * FROM document_tokens WHERE document_id = #{documentId} ORDER BY token_index
+    </select>
+
+    <delete id="deleteByDocumentId" parameterType="long">
+        DELETE FROM document_tokens WHERE document_id = #{documentId}
+    </delete>
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.DocumentToken" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO document_tokens (document_id, token_index, token_text, is_entity, entity_id, created_at)
+        VALUES (#{documentId}, #{tokenIndex}, #{tokenText}, #{isEntity}, #{entityId}, NOW())
+    </insert>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO document_tokens (document_id, token_index, token_text, is_entity, entity_id, created_at)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.documentId}, #{item.tokenIndex}, #{item.tokenText}, #{item.isEntity}, #{item.entityId}, NOW())
+        </foreach>
+    </insert>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.DocumentToken">
+        UPDATE document_tokens
+        SET token_index = #{tokenIndex}, token_text = #{tokenText}, is_entity=#{isEntity}, entity_id=#{entityId}
+        WHERE id = #{id}
+    </update>
+
+</mapper>

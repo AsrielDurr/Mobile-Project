@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.KgEdgeMapper">
+
+    <resultMap id="KgEdgeResult" type="org.example.mobileproject.entity.KgEdge">
+        <id property="id" column="id"/>
+        <result property="documentId" column="document_id"/>
+        <result property="sourceNodeId" column="source_node_id"/>
+        <result property="targetNodeId" column="target_node_id"/>
+        <result property="relationLabelId" column="relation_label_id"/>
+        <result property="edgeName" column="edge_name"/> <!-- 新增 -->
+        <result property="properties" column="properties"
+                typeHandler="org.example.mobileproject.util.JsonMapTypeHandler" />
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="selectById" resultMap="KgEdgeResult">
+        SELECT * FROM kg_edges WHERE id = #{id}
+    </select>
+
+    <select id="selectByDocumentId" resultMap="KgEdgeResult">
+        SELECT * FROM kg_edges WHERE document_id = #{documentId}
+    </select>
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.KgEdge"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO kg_edges
+        (document_id, source_node_id, target_node_id, relation_label_id, edge_name, properties, created_at)
+        VALUES
+            (#{documentId}, #{sourceNodeId}, #{targetNodeId}, #{relationLabelId}, #{edgeName}, #{properties}, NOW())
+    </insert>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.KgEdge">
+        UPDATE kg_edges
+        SET
+        source_node_id = #{sourceNodeId},
+        target_node_id = #{targetNodeId},
+        relation_label_id = #{relationLabelId},
+        edge_name = #{edgeName},
+        properties = #{properties}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM kg_edges WHERE id = #{id}
+    </delete>
+
+</mapper>

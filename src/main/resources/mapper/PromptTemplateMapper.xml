@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mobileproject.mapper.PromptTemplateMapper">
+
+    <resultMap id="PromptTemplateMap" type="org.example.mobileproject.entity.PromptTemplate">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="taskType" column="task_type"/>
+        <result property="description" column="description"/>
+        <result property="templateText" column="template_text"/>
+        <result property="model" column="model"/>
+        <result property="version" column="version"/>
+        <result property="isActive" column="is_active"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="org.example.mobileproject.entity.PromptTemplate" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO prompt_template
+        (name, task_type, description, template_text, model, version, is_active)
+        VALUES
+            (#{name}, #{taskType}, #{description}, #{templateText}, #{model}, #{version}, #{isActive});
+    </insert>
+
+    <select id="selectById" resultMap="PromptTemplateMap" parameterType="long">
+        SELECT * FROM prompt_template WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultMap="PromptTemplateMap">
+        SELECT * FROM prompt_template ORDER BY updated_at DESC
+    </select>
+
+    <select id="selectByTaskType" resultMap="PromptTemplateMap" parameterType="string">
+        SELECT * FROM prompt_template
+        WHERE task_type = #{taskType}
+        ORDER BY version DESC, updated_at DESC
+    </select>
+
+    <select id="selectByModel" resultMap="PromptTemplateMap" parameterType="string">
+        SELECT * FROM prompt_template
+        WHERE model = #{model}
+        ORDER BY version DESC, updated_at DESC
+    </select>
+
+    <update id="update" parameterType="org.example.mobileproject.entity.PromptTemplate">
+        UPDATE prompt_template
+        SET
+            name = #{name},
+            task_type = #{taskType},
+            description = #{description},
+            template_text = #{templateText},
+            model = #{model},
+            version = #{version},
+            is_active = #{isActive},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="setActive">
+        UPDATE prompt_template
+        SET is_active = #{isActive}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete" parameterType="long">
+        DELETE FROM prompt_template WHERE id = #{id}
+    </delete>
+
+</mapper>

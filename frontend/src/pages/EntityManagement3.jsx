@@ -124,6 +124,13 @@ export default function EntityManagement3() {
     else setEntities([]);
   }, [selectedDocId]);
 
+  // labels 异步加载完成后，重新映射实体，避免“未命名”
+  useEffect(() => {
+    if (selectedDocId != null && labels.length) {
+      fetchEntities(selectedDocId);
+    }
+  }, [labels, selectedDocId]);
+
   useEffect(() => {
     setPage(1);
   }, [selectedDocId, searchKeyword]);

@@ -26,9 +26,20 @@ export async function autoExtractEntities(documentId) {
 }
 
 // 新增：CSV 数据关联分析接口
-export async function analyzeCsvData(documentId) {
+export async function analyzeCsvData(documentId, files = [], options = {}) {
     const res = await fetch(`${AI_BASE_URL}/analyze-csv/${documentId}`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files }),
+        signal: options.signal,
+    });
+    return handleResponse(res);
+}
+
+// 获取可用 CSV 文件列表
+export async function listCsvFiles() {
+    const res = await fetch(`${AI_BASE_URL}/csv-files`, {
+        method: "GET",
     });
     return handleResponse(res);
 }

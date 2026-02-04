@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Paths;
 
 import java.util.*;
 
@@ -31,6 +32,8 @@ public class AIServiceImpl implements AIService {
 
     private final String API_KEY = "sk-9fec8ac0a66e48ecbb8d714bbfaea319";
     private final String BASE_URL = "https://api.deepseek.com/v1/chat/completions";
+    private static final String CSV_FOLDER_PATH =
+            Paths.get("src", "main", "resources", "csvdata").toAbsolutePath().toString();
 
     @Override
     @Transactional
@@ -42,6 +45,15 @@ public class AIServiceImpl implements AIService {
         if (doc == null || doc.getContent() == null) {
             log.warn("未找到文档或文档内容为空");
             return;
+        }
+
+        // 1.5 Cache existing labels to avoid duplicates
+        Map<String, EntityLabel> labelCache = new HashMap<>();
+        for (EntityLabel l : labelService.listAll()) {
+            String key = normalizeLabel(l.getLabelName());
+            if (!key.isEmpty()) {
+                labelCache.putIfAbsent(key, l);
+            }
         }
 
         // 2. 调用大模型获取结构化 JSON
@@ -62,7 +74,7 @@ public class AIServiceImpl implements AIService {
         // 4. 遍历处理每个实体
         for (AIEntityExtractionResponse.EntityDetail detail : aiResponse.getEntities()) {
             // A. 处理标签 (调用已有 Service 实现查重或创建)
-            EntityLabel label = findOrCreateLabel(detail.getLabel(), detail.getDescription());
+            EntityLabel label = findOrCreateLabel(detail.getLabel(), detail.getDescription(), labelCache);
 
             // B. 计算实体在 Token 序列中的区间 (核心匹配逻辑)
             int[] range = locateTokenRange(allTokens, detail.getText());
@@ -101,10 +113,11 @@ public class AIServiceImpl implements AIService {
         // 严格构造消息体，解决 400 Bad Request 问题
         Map<String, String> userMessage = new HashMap<>();
         userMessage.put("role", "user");
-        userMessage.put("content", "你是一个命名实体识别助手。请从文本中提取实体。要求：\n" +
-                "1. 严格返回 JSON 格式。\n" +
-                "2. 结构：{\"entities\": [{\"text\": \"...\", \"label\": \"...\", \"description\": \"...\"}]}\n" +
-                "3. 待处理文本：\n" + content);
+        userMessage.put("content", "You are a named-entity extraction assistant. Extract entities from the text. Requirements:\n" +
+                "1. Return strict JSON format.\n" +
+                "2. Structure: {\"entities\": [{\"text\": \"...\", \"label\": \"...\", \"description\": \"...\"}]}\n" +
+                "3. label and description must be in Chinese (no English or abbreviations).\n" +
+                "4. Text:\n" + content);
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", "deepseek-chat");
@@ -134,17 +147,120 @@ public class AIServiceImpl implements AIService {
     /**
      * 查找或创建标签
      */
-    private EntityLabel findOrCreateLabel(String name, String desc) {
-        return labelService.listAll().stream()
-                .filter(l -> l.getLabelName().equalsIgnoreCase(name))
-                .findFirst()
-                .orElseGet(() -> {
-                    EntityLabel nl = new EntityLabel();
-                    nl.setLabelName(name);
-                    nl.setDescription(desc);
-                    return labelService.create(nl);
-                });
+    private EntityLabel findOrCreateLabel(String name, String desc, Map<String, EntityLabel> cache) {
+        String cnName = toChineseLabel(name);
+        String key = normalizeLabel(cnName);
+        if (key.isEmpty()) {
+            cnName = "\u5176\u4ed6";
+            key = normalizeLabel(cnName);
+        }
+
+        EntityLabel existing = cache.get(key);
+        if (existing != null) return existing;
+
+        String originalKey = normalizeLabel(name);
+        if (!originalKey.isEmpty()) {
+            EntityLabel englishLabel = cache.get(originalKey);
+            if (englishLabel != null) {
+                if (!cnName.equals(englishLabel.getLabelName())) {
+                    englishLabel.setLabelName(cnName);
+                    if (desc != null && !desc.isBlank()) {
+                        englishLabel.setDescription(desc);
+                    }
+                    englishLabel = labelService.update(englishLabel);
+                }
+                cache.put(key, englishLabel);
+                return englishLabel;
+            }
+        }
+
+        EntityLabel nl = new EntityLabel();
+        nl.setLabelName(cnName);
+        nl.setDescription(desc);
+        EntityLabel created = labelService.create(nl);
+        cache.put(key, created);
+        return created;
     }
+
+    private String toChineseLabel(String label) {
+        if (label == null) return "\u5176\u4ed6";
+        String trimmed = label.trim();
+        if (trimmed.isEmpty()) return "\u5176\u4ed6";
+        if (containsCjk(trimmed)) return trimmed;
+
+        String normalized = normalizeLabel(trimmed);
+        String mapped = LABEL_TRANSLATIONS.get(normalized);
+        if (mapped != null) return mapped;
+
+        String compact = normalized.replaceAll("\\s+", "");
+        mapped = LABEL_TRANSLATIONS.get(compact);
+        if (mapped != null) return mapped;
+
+        return "\u5176\u4ed6";
+    }
+
+    private boolean containsCjk(String text) {
+        return text.codePoints().anyMatch(cp ->
+                (cp >= 0x4E00 && cp <= 0x9FFF) ||
+                (cp >= 0x3400 && cp <= 0x4DBF) ||
+                (cp >= 0xF900 && cp <= 0xFAFF) ||
+                (cp >= 0x2E80 && cp <= 0x2EFF));
+    }
+
+    private String normalizeLabel(String label) {
+        if (label == null) return "";
+        String trimmed = label.trim();
+        if (trimmed.isEmpty()) return "";
+        return trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private static final Map<String, String> LABEL_TRANSLATIONS = Map.ofEntries(
+            Map.entry("person", "\u4eba\u7269"),
+            Map.entry("people", "\u4eba\u7269"),
+            Map.entry("per", "\u4eba\u7269"),
+            Map.entry("human", "\u4eba\u7269"),
+            Map.entry("organization", "\u7ec4\u7ec7"),
+            Map.entry("org", "\u7ec4\u7ec7"),
+            Map.entry("company", "\u516c\u53f8"),
+            Map.entry("corporation", "\u516c\u53f8"),
+            Map.entry("institution", "\u673a\u6784"),
+            Map.entry("agency", "\u673a\u6784"),
+            Map.entry("concept", "\u6982\u5ff5"),
+            Map.entry("gpe", "\u56fd\u5bb6\u5730\u533a"),
+            Map.entry("loc", "\u5730\u70b9"),
+            Map.entry("location", "\u5730\u70b9"),
+            Map.entry("place", "\u5730\u70b9"),
+            Map.entry("city", "\u57ce\u5e02"),
+            Map.entry("country", "\u56fd\u5bb6"),
+            Map.entry("province", "\u7701\u4efd"),
+            Map.entry("time", "\u65f6\u95f4"),
+            Map.entry("date", "\u65e5\u671f"),
+            Map.entry("event", "\u4e8b\u4ef6"),
+            Map.entry("product", "\u4ea7\u54c1"),
+            Map.entry("technology", "\u6280\u672f"),
+            Map.entry("tech", "\u6280\u672f"),
+            Map.entry("brand", "\u54c1\u724c"),
+            Map.entry("law", "\u6cd5\u5f8b"),
+            Map.entry("policy", "\u653f\u7b56"),
+            Map.entry("metric", "\u6307\u6807"),
+            Map.entry("indicator", "\u6307\u6807"),
+            Map.entry("money", "\u91d1\u989d"),
+            Map.entry("price", "\u4ef7\u683c"),
+            Map.entry("quantity", "\u6570\u91cf"),
+            Map.entry("percent", "\u767e\u5206\u6bd4"),
+            Map.entry("percentage", "\u767e\u5206\u6bd4"),
+            Map.entry("email", "\u90ae\u7bb1"),
+            Map.entry("phone", "\u7535\u8bdd"),
+            Map.entry("url", "\u7f51\u5740"),
+            Map.entry("norp", "\u6c11\u65cf"),
+            Map.entry("fac", "\u8bbe\u65bd"),
+            Map.entry("facility", "\u8bbe\u65bd"),
+            Map.entry("work_of_art", "\u4f5c\u54c1"),
+            Map.entry("language", "\u8bed\u8a00"),
+            Map.entry("ordinal", "\u5e8f\u6570"),
+            Map.entry("cardinal", "\u57fa\u6570"),
+            Map.entry("misc", "\u5176\u4ed6")
+    );
 
     /**
      * 滑动窗口匹配：根据 AI 返回的文字，寻找 Token 索引区间
@@ -173,7 +289,7 @@ public class AIServiceImpl implements AIService {
 
 
     @Override
-    public String analyzeDocumentWithCsv(Long documentId) {
+    public String analyzeDocumentWithCsv(Long documentId, List<String> fileNames) {
         // 1. 获取文档基本信息
         Document doc = documentService.getById(documentId);
         if (doc == null) return "未找到文档信息";
@@ -196,7 +312,10 @@ public class AIServiceImpl implements AIService {
         }
 
         // 4. 读取本地 CSV 数据
-        String csvData = loadAllCsvData();
+        String csvData = loadCsvData(fileNames);
+        if (csvData.isBlank()) {
+            return "\u672a\u627e\u5230\u6240\u9009CSV\u6587\u4ef6\u6570\u636e";
+        }
 
         // 5. 编写针对性 Prompt
         String prompt = "你是一个专业的数据关联分析专家。任务是结合【文档实体】与【CSV业务数据】进行交叉比对分析。\n\n" +
@@ -221,35 +340,72 @@ public class AIServiceImpl implements AIService {
     }
 
     // 加载csv数据
-    private String loadAllCsvData() {
-        StringBuilder sb = new StringBuilder();
-        String csvFolderPath = "D:\\IDEA Projects\\Mobile-Project-main\\src\\main\\resources\\csvdata";
-        File folder = new File(csvFolderPath);
-
-        if (folder.exists() && folder.isDirectory()) {
-            File[] files = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".csv"));
-            if (files != null) {
-                for (File file : files) {
-                    sb.append("--- 文件名: ").append(file.getName()).append(" ---\n");
-                    try (BufferedReader br = new BufferedReader(new InputStreamReader(
-                            new FileInputStream(file), StandardCharsets.UTF_8))) {
-                        String line;
-                        int limit = 0;
-                        while ((line = br.readLine()) != null && limit < 100) { // 每个文件读取前100行防止溢出
-                            sb.append(line).append("\n");
-                            limit++;
-                        }
-                    } catch (Exception e) {
-                        log.error("读取CSV失败: " + file.getName(), e);
-                    }
-                    sb.append("\n");
-                }
+    
+    @Override
+    public List<String> listCsvFileNames() {
+        File folder = new File(CSV_FOLDER_PATH);
+        if (!folder.exists() || !folder.isDirectory()) {
+            return Collections.emptyList();
+        }
+        File[] files = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".csv"));
+        if (files == null || files.length == 0) {
+            return Collections.emptyList();
+        }
+        List<String> names = new ArrayList<>();
+        for (File file : files) {
+            if (file != null && file.isFile()) {
+                names.add(file.getName());
             }
+        }
+        names.sort(String.CASE_INSENSITIVE_ORDER);
+        return names;
+    }
+
+    private String loadCsvData(List<String> selectedFiles) {
+        if (selectedFiles == null || selectedFiles.isEmpty()) {
+            return "";
+        }
+
+        List<String> available = listCsvFileNames();
+        if (available.isEmpty()) {
+            return "";
+        }
+        Set<String> allowed = new HashSet<>(available);
+        List<String> filtered = new ArrayList<>();
+        for (String name : selectedFiles) {
+            if (name == null) continue;
+            String trimmed = name.trim();
+            if (trimmed.isEmpty()) continue;
+            if (allowed.contains(trimmed) && !filtered.contains(trimmed)) {
+                filtered.add(trimmed);
+            }
+        }
+        if (filtered.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        File folder = new File(CSV_FOLDER_PATH);
+        for (String fileName : filtered) {
+            File file = new File(folder, fileName);
+            if (!file.exists() || !file.isFile()) continue;
+            sb.append("--- \u6587\u4ef6\u540d: ").append(file.getName()).append(" ---\n");
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(
+                    new FileInputStream(file), StandardCharsets.UTF_8))) {
+                String line;
+                int limit = 0;
+                while ((line = br.readLine()) != null && limit < 100) {
+                    sb.append(line).append("\n");
+                    limit++;
+                }
+            } catch (Exception e) {
+                log.error("CSV read failed: " + file.getName(), e);
+            }
+            sb.append("\n");
         }
         return sb.toString();
     }
 
-    // 调用deepseek分析csv数据
     private String callDeepSeekGeneric(String prompt) {
         RestTemplate restTemplate = new RestTemplate();
         Map<String, String> message = new HashMap<>();

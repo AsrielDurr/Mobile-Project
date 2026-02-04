@@ -5,6 +5,7 @@ import org.example.mobileproject.service.AIService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -24,9 +25,20 @@ public class AIController {
 
     // 结合 CSV 数据进行关联分析
     @PostMapping("/analyze-csv/{documentId}")
-    public ResponseEntity<String> analyzeCsv(@PathVariable Long documentId) {
-        String report = aiService.analyzeDocumentWithCsv(documentId);
+    public ResponseEntity<String> analyzeCsv(
+            @PathVariable Long documentId,
+            @RequestBody(required = false) Map<String, List<String>> request) {
+        List<String> files = request != null ? request.get("files") : null;
+        if (files == null || files.isEmpty()) {
+            return ResponseEntity.badRequest().body("\u8bf7\u5148\u9009\u62e9CSV\u6587\u4ef6");
+        }
+        String report = aiService.analyzeDocumentWithCsv(documentId, files);
         return ResponseEntity.ok(report);
+    }
+
+    @GetMapping("/csv-files")
+    public ResponseEntity<List<String>> listCsvFiles() {
+        return ResponseEntity.ok(aiService.listCsvFileNames());
     }
 
     // 根据关联信息得到业务分析报告

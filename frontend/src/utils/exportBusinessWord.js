@@ -8,6 +8,17 @@ import { saveAs } from "file-saver";
  */
 export const exportBusinessWord = async (content, fileName = "业务深度分析报告") => {
     const lines = content.split('\n');
+    const stripMarkdown = (line) => {
+        let text = line;
+        text = text.replace(/^#+\s*/g, "");
+        text = text.replace(/\*\*(.*?)\*\*/g, "$1");
+        text = text.replace(/`([^`]*)`/g, "$1");
+        text = text.replace(/^\s*[-*]\s+/g, "");
+        text = text.replace(/^\s*\d+\.\s+/g, "");
+        if (/^\s*-{3,}\s*$/.test(text)) return "";
+        return text;
+    };
+
 
     const doc = new Document({
         sections: [{
@@ -22,7 +33,7 @@ export const exportBusinessWord = async (content, fileName = "业务深度分析
                 }),
                 // 遍历行生成内容
                 ...lines.map(line => {
-                    const cleanLine = line.trim();
+                    const cleanLine = stripMarkdown(line).trim();
                     if (!cleanLine) return new Paragraph({ text: "" });
 
                     // 简单模拟 Markdown 标题识别

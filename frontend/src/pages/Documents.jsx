@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getDocuments,
   createDocument,
@@ -78,6 +78,37 @@ export default function Documents() {
 
   // 在组件顶部增加一个 loading 状态
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
+  const [aiStage, setAiStage] = useState("");
+  const aiTimerRef = useRef(null);
+
+  const AI_PROGRESS_MAX = 92;
+
+  function startAiProgress() {
+    if (aiTimerRef.current) clearInterval(aiTimerRef.current);
+    setAiProgress(8);
+    setAiStage("\u51c6\u5907\u4e2d");
+    aiTimerRef.current = setInterval(() => {
+      setAiProgress((p) => {
+        const next = p < 60 ? p + 6 : p < AI_PROGRESS_MAX ? p + 3 : p + 1;
+        return Math.min(next, AI_PROGRESS_MAX);
+      });
+    }, 350);
+  }
+
+  function stopAiProgress(success) {
+    if (aiTimerRef.current) {
+      clearInterval(aiTimerRef.current);
+      aiTimerRef.current = null;
+    }
+    setAiProgress(100);
+    setAiStage(success ? "\u5b8c\u6210" : "\u5931\u8d25");
+    setTimeout(() => {
+      setAiProgress(0);
+      setAiStage("");
+    }, 900);
+  }
+
 
 // 添加处理方法
   async function handleAIAutoExtract() {
@@ -87,16 +118,19 @@ export default function Documents() {
     if (!ok) return;
 
     setIsAiProcessing(true); // 开始加载
+    startAiProgress();
     try {
       await autoExtractEntities(selectedDocId);
 
       // 关键：AI 执行完后，必须刷新当前页面的数据
       await fetchTokensAndEntities(selectedDocId); // 刷新右侧高亮
       await fetchDocs(); // 刷新左侧列表计数
+      stopAiProgress(true);
 
       autoAlert("AI 自动标注完成！");
     } catch (err) {
       console.error("AI Error:", err);
+      stopAiProgress(false);
       autoAlert("AI 提取失败：" + err.message);
     } finally {
       setIsAiProcessing(false); // 结束加载
@@ -166,6 +200,15 @@ export default function Documents() {
   useEffect(() => {
     fetchDocs();
     fetchLabels();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (aiTimerRef.current) {
+        clearInterval(aiTimerRef.current);
+        aiTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -556,31 +599,31 @@ export default function Documents() {
                 )}
                 </tbody>
               </table>
-            </div>
 
-            {filteredDocs.length > 0 && (
+              {filteredDocs.length > 0 && (
                 <div className="border-t p-3 flex justify-between items-center text-sm">
-            <span className="text-gray-500">
-              {page} / {Math.max(1, Math.ceil(filteredDocs.length / pageSize))}
-            </span>
+                  <span className="text-gray-500">
+                    {page} / {Math.max(1, Math.ceil(filteredDocs.length / pageSize))}
+                  </span>
                   <div className="flex gap-2">
                     <button
-                        className="btn btn-ghost px-2 py-1"
-                        disabled={page === 1}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      className="btn btn-ghost px-2 py-1"
+                      disabled={page === 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
                     >
-                      上一页
+                      {"\u4e0a\u4e00\u9875"}
                     </button>
                     <button
-                        className="btn btn-ghost px-2 py-1"
-                        disabled={page === Math.ceil(filteredDocs.length / pageSize)}
-                        onClick={() => setPage((p) => Math.min(Math.ceil(filteredDocs.length / pageSize), p + 1))}
+                      className="btn btn-ghost px-2 py-1"
+                      disabled={page === Math.ceil(filteredDocs.length / pageSize)}
+                      onClick={() => setPage((p) => Math.min(Math.ceil(filteredDocs.length / pageSize), p + 1))}
                     >
-                      下一页
+                      {"\u4e0b\u4e00\u9875"}
                     </button>
                   </div>
                 </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* 右侧文档内容 */}
@@ -596,7 +639,8 @@ export default function Documents() {
                 </button>
                 {selectedDoc && (
                     <>
-                      <button
+                      <div className="flex flex-col items-start gap-2">
+                        <button
                           className={`
     relative flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-white transition-all duration-300
     ${isAiProcessing
@@ -621,7 +665,21 @@ export default function Documents() {
                               <span>AI 自动标注</span>
                             </>
                         )}
-                      </button>
+                        </button>
+                        {(isAiProcessing || aiProgress > 0) && (
+                          <div className="w-[220px]">
+                            <div className="text-[11px] text-gray-500 mb-1">
+                              {"AI " + (aiStage || "\u5904\u7406\u4e2d") + " " + aiProgress + "%"}
+                            </div>
+                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-300 ${aiStage === "\u5931\u8d25" ? "bg-red-500" : "bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"}`}
+                                style={{ width: `${aiProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <button className="btn btn-primary" onClick={openEditDoc}>
                         编辑
                       </button>

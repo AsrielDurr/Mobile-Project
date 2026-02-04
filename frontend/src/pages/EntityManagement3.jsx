@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getDocuments } from "../api/documents.js";
 import {
   getEntityItemsByDocument,
@@ -7,7 +7,7 @@ import {
 } from "../api/entityItems.js";
 import { getEntityLabels } from "../api/entityLabels.js";
 import { autoAlert, autoConfirm } from "../utils/autoDialog";
-import { analyzeCsvData } from "../api/ai.js";
+import { analyzeCsvData, listCsvFiles } from "../api/ai.js";
 import { exportBusinessWord } from "../utils/exportBusinessWord.js";
 import { getEnhancedBusinessReport } from "../api/ai.js";
 
@@ -81,9 +81,51 @@ export default function EntityManagement3() {
   const [page, setPage] = useState(1);
   const [searchKeyword, setSearchKeyword] = useState("");
 
+  const [csvFiles, setCsvFiles] = useState([]);
+  const [selectedCsvFiles, setSelectedCsvFiles] = useState([]);
+  const [isCsvLoading, setIsCsvLoading] = useState(false);
+
   const [analysisReport, setAnalysisReport] = useState("");
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisStage, setAnalysisStage] = useState("");
+  const analysisTimerRef = useRef(null);
+  const analysisAbortRef = useRef(null);
+
+  const ANALYSIS_PROGRESS_MAX = 92;
+
+  function startAnalysisProgress() {
+    if (analysisTimerRef.current) clearInterval(analysisTimerRef.current);
+    setAnalysisProgress(8);
+    setAnalysisStage("\u51c6\u5907\u4e2d");
+    analysisTimerRef.current = setInterval(() => {
+      setAnalysisProgress((p) => {
+        const next = p < 60 ? p + 6 : p < ANALYSIS_PROGRESS_MAX ? p + 3 : p + 1;
+        return Math.min(next, ANALYSIS_PROGRESS_MAX);
+      });
+    }, 350);
+  }
+
+  function stopAnalysisProgress(status) {
+    if (analysisTimerRef.current) {
+      clearInterval(analysisTimerRef.current);
+      analysisTimerRef.current = null;
+    }
+    setAnalysisProgress(100);
+    if (status === true) {
+      setAnalysisStage("\u5b8c\u6210");
+    } else if (status === false) {
+      setAnalysisStage("\u5931\u8d25");
+    } else {
+      setAnalysisStage(status || "");
+    }
+    setTimeout(() => {
+      setAnalysisProgress(0);
+      setAnalysisStage("");
+    }, 900);
+  }
+
 
   const [isExporting, setIsExporting] = useState(false);
   const [showExportSuccess, setShowExportSuccess] = useState(false);
@@ -117,6 +159,20 @@ export default function EntityManagement3() {
   useEffect(() => {
     fetchDocs();
     fetchLabels();
+    fetchCsvFiles();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (analysisTimerRef.current) {
+        clearInterval(analysisTimerRef.current);
+        analysisTimerRef.current = null;
+      }
+      if (analysisAbortRef.current) {
+        analysisAbortRef.current.abort();
+        analysisAbortRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -137,19 +193,77 @@ export default function EntityManagement3() {
     }
   }
 
-  async function handleAnalyze() {
-    if (!selectedDocId) return autoAlert("请先选择一个文档");
 
-    setIsAnalyzing(true);
+  async function fetchCsvFiles() {
+    setIsCsvLoading(true);
     try {
-      const report = await analyzeCsvData(selectedDocId);
+      const res = await listCsvFiles();
+      const files = normalizeResponsePayload(res) || [];
+      setCsvFiles(files);
+      setSelectedCsvFiles((prev) =>
+        files.length ? prev.filter((name) => files.includes(name)) : []
+      );
+    } catch (err) {
+      autoAlert("获取CSV文件失败：" + err.message);
+    } finally {
+      setIsCsvLoading(false);
+    }
+  }
+
+
+  function toggleCsvFile(name) {
+    setSelectedCsvFiles((prev) =>
+      prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name]
+    );
+  }
+
+  function toggleAllCsvFiles() {
+    if (!csvFiles.length) return;
+    setSelectedCsvFiles((prev) =>
+      prev.length === csvFiles.length ? [] : [...csvFiles]
+    );
+  }
+
+  async function handleAnalyze() {
+    if (!selectedDocId) return autoAlert("\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u6587\u6863");
+
+    if (!selectedCsvFiles.length) {
+      return autoAlert("\u8bf7\u5148\u9009\u62e9CSV\u6587\u4ef6");
+    }
+    if (analysisAbortRef.current) {
+      analysisAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    analysisAbortRef.current = controller;
+    setIsAnalyzing(true);
+    startAnalysisProgress();
+    try {
+      const report = await analyzeCsvData(selectedDocId, selectedCsvFiles, {
+        signal: controller.signal,
+      });
       setAnalysisReport(report);
       setShowAnalysisModal(true);
+      stopAnalysisProgress(true);
     } catch (err) {
-      autoAlert("分析失败：" + err.message);
+      if (err && err.name === "AbortError") {
+        stopAnalysisProgress("\u5df2\u53d6\u6d88");
+      } else {
+        stopAnalysisProgress(false);
+        autoAlert("\u5206\u6790\u5931\u8d25\uff1a" + err.message);
+      }
     } finally {
       setIsAnalyzing(false);
+      analysisAbortRef.current = null;
     }
+  }
+
+  function handleCancelAnalyze() {
+    if (analysisAbortRef.current) {
+      analysisAbortRef.current.abort();
+      analysisAbortRef.current = null;
+    }
+    setIsAnalyzing(false);
+    stopAnalysisProgress("\u5df2\u53d6\u6d88");
   }
 
   async function fetchLabels() {
@@ -239,6 +353,11 @@ export default function EntityManagement3() {
       page * PAGE_SIZE
   );
 
+  const allCsvSelected =
+      csvFiles.length > 0 && selectedCsvFiles.length === csvFiles.length;
+  const canAnalyze =
+      Boolean(selectedDocId) && selectedCsvFiles.length > 0 && !isAnalyzing;
+
   return (
       <div className="page-section space-y-4">
         {/* ===== 页面标题 ===== */}
@@ -277,15 +396,69 @@ export default function EntityManagement3() {
 
               {/* 右侧：AI分析按钮 + 搜索 + 统计 */}
               <div className="flex items-center gap-4 mr-6">
+                <details className="relative">
+                  <summary className="btn btn-ghost px-3 py-2">
+                    {"\u9009\u62e9CSV" +
+                      (selectedCsvFiles.length
+                        ? " (" + selectedCsvFiles.length + ")"
+                        : "")}
+                  </summary>
+                  <div className="absolute left-0 z-20 mt-2 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+                    {isCsvLoading ? (
+                      <div className="text-sm text-gray-500">
+                        {"\u6b63\u5728\u52a0\u8f7d..."}
+                      </div>
+                    ) : csvFiles.length ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>{"\u53ef\u9009CSV\u6587\u4ef6"}</span>
+                          <button
+                            type="button"
+                            className="text-emerald-600 hover:underline"
+                            onClick={toggleAllCsvFiles}
+                          >
+                            {allCsvSelected ? "\u6e05\u7a7a" : "\u5168\u9009"}
+                          </button>
+                        </div>
+                        <div className="max-h-56 overflow-auto space-y-1 pr-1">
+                          {csvFiles.map((name) => (
+                            <label
+                              key={name}
+                              className="flex items-center gap-2 text-sm text-gray-700"
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-emerald-500"
+                                checked={selectedCsvFiles.includes(name)}
+                                onChange={() => toggleCsvFile(name)}
+                              />
+                              <span className="truncate" title={name}>
+                                {name}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500">
+                        {"\u6682\u65e0CSV\u6587\u4ef6"}
+                      </div>
+                    )}
+                  </div>
+                </details>
                 {/* 新增 AI 数据关联分析按钮 */}
+                <div className="flex flex-col items-start gap-2">
+                <div className="flex items-center gap-2">
                 <button
                     className={`btn flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-white transition-all shadow-md ${
                         isAnalyzing
                             ? "bg-gray-400 cursor-wait"
-                            : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:scale-105 active:scale-95"
+                            : !canAnalyze
+                                ? "bg-gray-300 cursor-not-allowed"
+                                : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:scale-105 active:scale-95"
                     }`}
                     onClick={handleAnalyze}
-                    disabled={isAnalyzing}
+                    disabled={!canAnalyze}
                 >
                   {isAnalyzing ? (
                       <>
@@ -298,6 +471,29 @@ export default function EntityManagement3() {
                       </>
                   )}
                 </button>
+                {isAnalyzing && (
+                  <button
+                    className="btn btn-ghost px-3 py-2 text-gray-600"
+                    onClick={handleCancelAnalyze}
+                  >
+                    {"\u7ed3\u675f"}
+                  </button>
+                )}
+                </div>
+                {(isAnalyzing || analysisProgress > 0) && (
+                  <div className="w-[260px]">
+                    <div className="text-[11px] text-gray-500 mb-1">
+                      {"AI " + (analysisStage || "\u5904\u7406\u4e2d") + " " + analysisProgress + "%"}
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${analysisStage === "\u5931\u8d25" ? "bg-red-500" : "bg-gradient-to-r from-emerald-500 to-teal-600"}`}
+                        style={{ width: `${analysisProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                </div>
 
                 <input
                     className="input"

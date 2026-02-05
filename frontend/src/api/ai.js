@@ -33,11 +33,21 @@ export async function analyzeCsvData(documentId) {
     return handleResponse(res);
 }
 
-export async function getEnhancedBusinessReport(rawAnalysis) {
+// 修改参数，增加 documentId
+export async function getEnhancedBusinessReport(documentId, rawAnalysis) {
     const res = await fetch(`http://localhost:8080/api/ai/generate-business-report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawAnalysis }) // 后端记得用 Map 或 DTO 接收
+        body: JSON.stringify({
+            documentId: documentId, // 👈 必须带上这个 ID
+            rawAnalysis: rawAnalysis
+        })
     });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || "生成深度报告失败");
+    }
+
     return res.text();
 }

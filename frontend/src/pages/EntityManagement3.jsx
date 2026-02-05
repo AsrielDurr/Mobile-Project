@@ -94,7 +94,7 @@ export default function EntityManagement3() {
     setIsExporting(true);
     try {
       // 1. 调用后端获取深度报告
-      const enhancedReport = await getEnhancedBusinessReport(analysisReport);
+      const enhancedReport = await getEnhancedBusinessReport(selectedDocId, analysisReport);
 
       // 2. 调用工具类生成并下载 Word
       await exportBusinessWord(enhancedReport, `业务指导报告_${selectedDocId}`);

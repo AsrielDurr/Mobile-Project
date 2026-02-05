@@ -439,16 +439,40 @@ public class AIServiceImpl implements AIService {
     }
 
     @Override
-    public String generateBusinessReport(String rawAnalysis) {
-        String prompt = "你是一位资深的业务管理专家。请根据以下【原始数据分析结论】，撰写一份深度的【业务年度/月度评估与行动指南】。\n\n" +
-                "【原始结论】：\n" + rawAnalysis + "\n\n" +
-                "【撰写要求】：\n" +
-                "1. **逻辑推理**：不要只重复数字，要分析数字背后的原因（如：为何某网格进步快？是否是动作到位？）。\n" +
-                "2. **管理洞察**：识别出潜在的风险点和机会点。\n" +
-                "3. **指导信息**：针对未来工作，给出具体的、可操作的行动建议（分短期、中期）。\n" +
-                "4. **文风**：专业、严谨、具有前瞻性。\n\n" +
-                "请以正式报告的格式返回。";
+    public String generateBusinessReport(Long documentId, String rawAnalysis) {
+        log.info("--- 开始为文档 {} 生成深度业务报告 ---", documentId);
 
-        return callDeepSeekGeneric(prompt, "report_generation"); // 使用报告生成专用模型
+        // 1. 获取文档基本信息
+        Document doc = documentService.getById(documentId);
+        String content = (doc != null) ? doc.getContent() : "（无法获取文档原文）";
+
+        // 2. 获取关联实体列表并格式化
+        List<EntityItem> entities = entityItemService.listByDocumentId(documentId);
+        StringBuilder entityInfo = new StringBuilder();
+        if (entities != null && !entities.isEmpty()) {
+            for (EntityItem item : entities) {
+                EntityLabel label = labelService.getById(item.getLabelId());
+                entityInfo.append(String.format("- 实体: [%s], 标签: [%s]\n",
+                        item.getText(), label != null ? label.getLabelName() : "未分类"));
+            }
+        } else {
+            entityInfo.append("（该文档暂无关联标注实体）");
+        }
+
+        // 3. 构造增强型复合 Prompt
+        String prompt = "你是一位资深的业务管理专家。请结合【文档原文】、【关键实体】以及【初步数据分析结论】，撰写一份深度的【业务评估与行动指南】。\n\n" +
+                "### 1. 业务背景 (文档原文)\n" + content + "\n\n" +
+                "### 2. 核心关注点 (标注实体)\n" + entityInfo.toString() + "\n\n" +
+                "### 3. 数据分析结论 (CSV 比对结果)\n" + rawAnalysis + "\n\n" +
+                "--- \n" +
+                "【撰写要求】：\n" +
+                "1. **关联分析**：结合文档内容与数据结论。例如：文档提到的业务目标在数据中是否达成？\n" +
+                "2. **深度挖掘**：不要只重复数字，要分析数字背后的管理动作（如：某网格表现优异是否是因为文档中提到的某项政策落实到位？）。\n" +
+                "3. **风险与机会**：识别出当前业务路径下的潜在风险及可优化的增长点。\n" +
+                "4. **行动指南**：给出具体的、分阶段（短期/中期）的可操作建议。\n" +
+                "5. **文风**：专业、严谨、具有前瞻性，以结构化的正式报告格式返回。";
+
+        // 4. 调用 AI 接口
+        return callDeepSeekGeneric(prompt);
     }
 }

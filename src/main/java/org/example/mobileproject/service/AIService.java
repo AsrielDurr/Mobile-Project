@@ -9,5 +9,5 @@ public interface AIService {
 
     String analyzeDocumentWithCsv(Long documentId);
 
-    String generateBusinessReport(String rawAnalysis);
+    String generateBusinessReport(Long documentId, String rawAnalysis);
 }
